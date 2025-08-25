@@ -19,3 +19,6 @@ if ! grep -q '${INSTALL_DIR}/bin' "$HOME/.zshrc"; then
   echo 'export PATH="$HOME/{DIRECTORY_PATH}/bin:$PATH"' >> "$HOME/.zshrc"
   echo "Added to ~/.zshrc. Run 'source ~/.zshrc' or restart your shell."
 fi
+
+# chmod +x install.sh
+# /bin/bash -c "$(curl -fsSL https://raw.githubusercontent.com/your-username/my-shell-scripts/main/install.sh)"
