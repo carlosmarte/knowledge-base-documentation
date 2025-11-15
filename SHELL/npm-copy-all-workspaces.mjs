@@ -1,15 +1,39 @@
 #!/usr/bin/env node
-const fs = require('fs');
-const path = require('path');
+import fs from "fs";
+import path from "path";
+import glob from "glob";
+import { createRequire } from "module";
+import semver from "semver";
 
 const root = process.cwd();
-const rootPkg = require(path.join(root, 'package.json'));
+const rootPkgPath = path.join(root, "package.json");
+const rootPkg = JSON.parse(fs.readFileSync(rootPkgPath, "utf-8"));
+
 const workspaces = rootPkg.workspaces || [];
 
-const glob = require('glob');
+/**
+ * Picks the newest / highest semantic version.
+ * If versions are not valid semver (e.g., "*", "latest"), fall back to replacing.
+ */
+function pickNewest(existing, incoming) {
+  if (!existing) return incoming;
+
+  // If both valid semver ranges
+  if (semver.validRange(existing) && semver.validRange(incoming)) {
+    return semver.intersects(incoming, existing)
+      ? semver.maxSatisfying(
+          [existing.replace(/^\^|~/, ""), incoming.replace(/^\^|~/, "")],
+          incoming.replace(/^\^|~/, "")
+        ) || incoming
+      : incoming;
+  }
+
+  // Fallback: replace if incoming looks newer or is a tag
+  return incoming;
+}
 
 function safeAdd(obj, key, version) {
-  if (!obj[key]) obj[key] = version;
+  obj[key] = pickNewest(obj[key], version);
 }
 
 const mergedDeps = {};
@@ -19,35 +43,36 @@ console.log("🔍 Scanning workspaces:", workspaces);
 
 const workspacePaths = workspaces.flatMap((pattern) => glob.sync(pattern));
 
-workspacePaths.forEach((wsPath) => {
-  const pkgPath = path.join(root, wsPath, 'package.json');
+for (const wsPath of workspacePaths) {
+  const pkgJsonPath = path.join(root, wsPath, "package.json");
 
-  if (!fs.existsSync(pkgPath)) return;
+  if (!fs.existsSync(pkgJsonPath)) continue;
 
-  const pkg = require(pkgPath);
-  console.log("📦 Found workspace pkg:", pkgPath);
+  // Use ESM-friendly context require
+  const localRequire = createRequire(path.join(root, wsPath) + "/");
+  const pkg = localRequire("./package.json");
+
+  console.log("📦 Loaded workspace:", pkgJsonPath);
 
   if (pkg.dependencies) {
-    Object.entries(pkg.dependencies).forEach(([k, v]) => {
-      safeAdd(mergedDeps, k, v);
-    });
+    for (const [name, ver] of Object.entries(pkg.dependencies)) {
+      safeAdd(mergedDeps, name, ver);
+    }
   }
 
   if (pkg.devDependencies) {
-    Object.entries(pkg.devDependencies).forEach(([k, v]) => {
-      safeAdd(mergedDevDeps, k, v);
-    });
+    for (const [name, ver] of Object.entries(pkg.devDependencies)) {
+      safeAdd(mergedDevDeps, name, ver);
+    }
   }
-});
+}
 
-// Merge into root package.json
+// Merge into root
 rootPkg.dependencies = { ...(rootPkg.dependencies || {}), ...mergedDeps };
 rootPkg.devDependencies = { ...(rootPkg.devDependencies || {}), ...mergedDevDeps };
 
-fs.writeFileSync(
-  path.join(root, 'package.json'),
-  JSON.stringify(rootPkg, null, 2)
-);
+// Write updated root package.json
+fs.writeFileSync(rootPkgPath, JSON.stringify(rootPkg, null, 2));
 
-console.log("✅ Root dependencies merged successfully.");
-console.log("👉 Now run: npm install");
+console.log("✅ Dependencies merged with version dedupe.");
+console.log("👉 Run npm install to apply changes.");
