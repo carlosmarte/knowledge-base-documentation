@@ -1,0 +1,32 @@
+# docker build -t myapp --build-arg TARGET_ENV=prod .
+# docker build -t myapp .
+# docker run -e HTTP_PROXY=http://proxy.company.com:8080 -e HTTPS_PROXY=http://proxy.company.com:8080 -e NO_PROXY=localhost,127.0.0.1,.company.com myapp
+
+# -----------------------------
+# Build ARG defaults (can be overridden)
+# -----------------------------
+ARG MODE=prod
+
+ARG HTTP_PROXY=http://proxy.company.com:8080
+ARG HTTPS_PROXY=http://proxy.company.com:8080
+ARG NO_PROXY=localhost,127.0.0.1,.company.com
+
+# -----------------------------
+# Convert ARG → conditional ENV
+# -----------------------------
+# MODE is always visible as ENV
+ENV MODE=${MODE}
+
+# Build proxy environment file
+RUN if [ "$MODE" = "local" ]; then \
+        echo "HTTP_PROXY=" > /env.proxies; \
+        echo "HTTPS_PROXY=" >> /env.proxies; \
+        echo "NO_PROXY=*" >> /env.proxies; \
+    else \
+        echo "HTTP_PROXY=$HTTP_PROXY" > /env.proxies; \
+        echo "HTTPS_PROXY=$HTTPS_PROXY" >> /env.proxies; \
+        echo "NO_PROXY=$NO_PROXY" >> /env.proxies; \
+    fi
+
+# Load the calculated proxies into final ENV
+ENV $(cat /env.proxies)
